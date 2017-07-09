@@ -43,6 +43,70 @@ class IntegerField(Field):
     def __init__(self, null=True, index=False, unique=False, default=0, primary_key=False):
         super(IntegerField, self).__init__(null, index, unique, default, primary_key)
 
+class Operation(object):
+    def __init__(self, table, op_data):
+        self._table = table
+        self._op_data = op_data
+        self._values = []
+        self._sql = None
+
+    def execute(self):
+        if not self._sql:
+            self.sql()
+        self._table.database.execute_sql(self._sql, self._values)
+        return self
+
+class Insert(Operation):
+    def __init__(self, table, insert_data):
+        super(Insert, self).__init__(table, insert_data)
+
+    def sql(self):
+        self._sql = ("INSERT INTO " + self._table.__name__ + " ")
+        keys = []
+        placeholder = []
+        for k, v in self._op_data.items():
+            keys.append(k)
+            self._values.append(v)
+            placeholder.append("%s")
+        self._sql += ("(" + ", ".join(keys) + ")")
+        self._sql += (" VALUES (" + ", ".join(placeholder) + ")")
+        print(self._sql)
+
+
+class Delete(Operation):
+    def __init__(self, table, delete_data):
+        super(Delete, self).__init__(table, delete_data)
+
+    def sql(self):
+        pass
+
+class Update(Operation):
+    def __init__(self, table, update_data):
+        super(Update, self).__init__(table, update_data)
+
+    def sql(self):
+        pass
+
+class Select(Operation):
+    def __init__(self, table, select_data):
+        super(Select, self).__init__(table, select_data)
+
+    def sql(self):
+        self._sql = ("SELECT " + ", ".join(self._op_data))
+        self._sql += (" FROM " + self._table.__name__)
+        print(self._sql)
+
+    def get(self):
+        res = []
+        for res_tuple in self._table.database.get_all():
+            _instance = self._table()
+            for index, field_name in enumerate(self._op_data):
+                setattr(_instance, field_name, res_tuple[index])
+            res.append(_instance)
+
+        return res
+
+
 class BaseModel(type):
     def __new__(cls, name, bases, attrs):
         if name == "metaclass_helper":
@@ -61,23 +125,45 @@ class BaseModel(type):
             if isinstance(attr, Field):
                 fields.append((attr, name,))
 
-        cls._data = {}
-        cls._dirty = set()
+        #cls._data = {}
+        #cls._dirty = set()
+        cls._fields = []
         for attr, name in fields:
-            cls._data[name] = attr._default
+            #cls._data[name] = attr._default
+            cls._fields.append(name)
+            setattr(cls, name, attr._default)
             attr.add_to_class(cls, name)
 
         return cls
 
+
 class Model(with_metaclass(BaseModel)):
-    @classmethod
-    def create(cls, sql):
-        pass
+    def __init__(self, *args, **kwargs):
+        self._data = {}
+        self._dirty = set()
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
     @classmethod
-    def select(cls, sql, args):
-        cls.database.execute_sql(sql, args)
-        cls.database.commit()
+    def insert(cls, __data=None, **insert):
+        insert_data = __data or {}
+        insert_data.update([(k, insert[k]) for k in insert.keys()])
+        return Insert(cls, insert_data)
+
+    @classmethod
+    def select(cls, *select):
+        select_data = []
+        if select:
+            select_data.extend(select)
+        else:
+            select_data.extend(cls._fields)
+        return Select(cls, select_data)
+
+    def save(self):
+        field_dict = dict(self._data)
+        res = self.insert(**field_dict).execute()
+        self._dirty.clear()
+        return res
 
     @classmethod
     def execute(cls):
@@ -88,8 +174,8 @@ class Database(object):
     def __init__(self, database, **connect_kwargs):
         self._database = database
         self._connect_kwargs = connect_kwargs
-        self._conn = None
-        self._cursor = None
+        self._conn = self._connect(database, **connect_kwargs)
+        self._cursor = self._get_cursor()
 
     def connect(self):
         if not self._conn:
@@ -99,18 +185,24 @@ class Database(object):
         raise NotImplementedError
 
     def _get_cursor(self):
-        #raise NotImplementedError
         return self._conn.cursor()
+
+    def get_all(self):
+        return self._cursor.fetchall()
+
+    def get_many(self, size):
+        return self._cursor.fetchmany(size=size)
+
+    def get_one(self):
+        return self._cursor.fetchone()
 
     def begin(self):
         raise NotImplementedError
 
     def commit(self):
-        #raise NotImplementedError
         self._conn.commit()
 
     def rollback(self):
-        #raise NotImplementedError
         self._conn.rollback()
 
     def execute_sql(self, sql, args=None):
@@ -124,6 +216,9 @@ class Database(object):
 class MySQLDatabase(Database):
     def __init__(self, database, **connect_kwargs):
         super(MySQLDatabase, self).__init__(database, **connect_kwargs)
+
+    def begin(self):
+        self._conn.begin()
 
     def _connect(self, database, **connect_kwargs):
         if not mysql:

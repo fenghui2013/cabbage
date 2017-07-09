@@ -9,22 +9,24 @@ db = MySQLDatabase(
     user = 'root',
     passwd = 'Fenglovehuihui!@#123',
     charset = 'utf8',
-    autocommit = False
+    autocommit = True
 )
 
 class Ttt(Model):
     count = IntegerField()
+    #num = IntegerField()
 
     class Meta:
         database = db
 
 db.connect()
-#time.sleep(30)
-Ttt.select("update ttt set count=%s where count<%s", (5, 10000,))
-ttt = Ttt()
-print(type(ttt.count), ttt.count)
-ttt.count = 10
-print(type(ttt.count), ttt.count)
-ttt.count = 100
-print(type(ttt.count), ttt.count)
+
+# ----insert----
+#ttt = Ttt(count=8)
+#ttt.save()
+
+# ----select----
+#print(Ttt.select().execute().get())
+for temp in Ttt.select().execute().get():
+    print(temp.count)
 db.close()
