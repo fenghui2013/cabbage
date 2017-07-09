@@ -49,12 +49,23 @@ class Operation(object):
         self._op_data = op_data
         self._values = []
         self._sql = None
+        self.sql()
 
     def execute(self):
-        if not self._sql:
-            self.sql()
         self._table.database.execute_sql(self._sql, self._values)
         return self
+
+    def where(self, **where_data):
+        self._sql += " WHERE "
+        for k, v in where_data.items():
+            self._sql += (k + " = %s and ")
+            self._values.append(v)
+        self._sql = self._sql[:-5]
+        print(self._sql)
+        return self
+
+    def get_sql(self):
+        return self._sql
 
 class Insert(Operation):
     def __init__(self, table, insert_data):
@@ -70,22 +81,25 @@ class Insert(Operation):
             placeholder.append("%s")
         self._sql += ("(" + ", ".join(keys) + ")")
         self._sql += (" VALUES (" + ", ".join(placeholder) + ")")
-        print(self._sql)
 
 
 class Delete(Operation):
-    def __init__(self, table, delete_data):
+    def __init__(self, table, delete_data=None):
         super(Delete, self).__init__(table, delete_data)
 
     def sql(self):
-        pass
+        self._sql = ("DELETE FROM " + self._table.__name__)
 
 class Update(Operation):
     def __init__(self, table, update_data):
         super(Update, self).__init__(table, update_data)
 
     def sql(self):
-        pass
+        self._sql = ("UPDATE " + self._table.__name__ + " SET ")
+        for k, v in self._op_data.items():
+            self._sql += (k + " = %s, ")
+            self._values.append(v)
+        self._sql = self._sql[:-2]
 
 class Select(Operation):
     def __init__(self, table, select_data):
@@ -94,7 +108,6 @@ class Select(Operation):
     def sql(self):
         self._sql = ("SELECT " + ", ".join(self._op_data))
         self._sql += (" FROM " + self._table.__name__)
-        print(self._sql)
 
     def get(self):
         res = []
@@ -105,7 +118,6 @@ class Select(Operation):
             res.append(_instance)
 
         return res
-
 
 class BaseModel(type):
     def __new__(cls, name, bases, attrs):
@@ -151,6 +163,10 @@ class Model(with_metaclass(BaseModel)):
         return Insert(cls, insert_data)
 
     @classmethod
+    def delete(cls):
+        return Delete(cls)
+
+    @classmethod
     def select(cls, *select):
         select_data = []
         if select:
@@ -158,6 +174,12 @@ class Model(with_metaclass(BaseModel)):
         else:
             select_data.extend(cls._fields)
         return Select(cls, select_data)
+
+    @classmethod
+    def update(cls, **update):
+        update_data = {}
+        update_data.update(update)
+        return Update(cls, update_data)
 
     def save(self):
         field_dict = dict(self._data)
